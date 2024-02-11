@@ -5,6 +5,8 @@ const { ethers, upgrades } = require('hardhat');
 
 async function deployOracleFixture() {
   const OracleContract = await ethers.getContractFactory("Oracle");
+  // deployProxy会自动帮忙部署1个透明模式的代理合约，且会自动调用initialize方法
+  // 后续升级使用upgradeProxy方法
   const proxy = await upgrades.deployProxy(OracleContract, [], { initializer: "initialize" });
   await proxy.waitForDeployment();
   const address = await proxy.getAddress();
@@ -51,25 +53,6 @@ async function deployBettingFixture() {
 async function main() {
   const { bettingContract } = await loadFixture(deployBettingFixture);
   await bettingContract.waitForDeployment();
-
-  /*
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
-
-  const lockedAmount = ethers.parseEther("0.001");
-
-  const lock = await ethers.deployContract("Lock", [unlockTime], {
-    value: lockedAmount,
-  });
-
-  await lock.waitForDeployment();
-
-  console.log(
-    `Lock with ${ethers.formatEther(
-      lockedAmount
-    )}ETH and unlock timestamp ${unlockTime} deployed to ${lock.target}`
-  );
-  */
 }
 
 // We recommend this pattern to be able to use async/await everywhere
