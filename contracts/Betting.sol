@@ -15,43 +15,42 @@ import "./interface/IParam.sol";
 contract Betting is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     // 竞猜的状态
     enum BettingStatus {
-        NotStarted,
-        Placing,
-        Answering,
-        Settling,
-        Ended
+        /* 运行中 */
+        Running,
+        /* 暂停中 */
+        Paused,
+        /* 终止 */
+        Exited,
     }
 
     // 竞猜的信息
     struct BettingInfo {
         address owner;
-        uint256 startTime;
+        /* 开始下注时间 */
+        uint256 placeTime;
+        /* 公证答案时间 */
+        uint256 AnswerTime;
+        /* 结算时间 */
         uint256 settleTime;
+        /* 领奖时间 */
         uint256 rewardTime;
+        /* 结束时间 */
         uint256 endTime;
-        uint256 totalBettingAmount;
-        uint256 totalRewardAmount;
         /* 公证人(有权输入结果选项) */
         address[] referees;
+        /* 竞猜选项列表 */
         uint8 optionNum;
+        /* 公证的正确选项 */
         uint8 answerOptionIndex;
+        /* 保证金 */
         BettingStatus status;
     }
 
     // 下注金额和奖励信息
     struct PlaceInfo {
         address token;
-        uint8 optionId;
         uint256 sourceAmount;
-        uint256 rewardAmount;
-    }
-
-    // 金额信息
-    struct MoneyInfo {
-        address token;
-        uint256 sourceAmount;
-        uint256 rewardAmount;
-        // uint256 value;
+        uint256 returnRewardAmount;
     }
 
     // 公证人填写的答案
@@ -67,14 +66,11 @@ contract Betting is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
     // 竞猜信息字典 bettingId => BettingInfo
     mapping(uint256 => BettingInfo) public bettingInfoMap;
 
-    // 竞猜的用户投注金额 bytes32(bettingId, player, optionId) => MoneyInfo[]
-    mapping(bytes32 => MoneyInfo[]) public playerOptionMoneyInfos;
-
-    // 竞猜的选项汇总投注信息 bytes32(bettingId, optionId) => MoneyInfo[]
-    mapping(bytes32 => MoneyInfo[]) public summaryOptionMoneyInfos;
+    // 竞猜的用户投注金额 bytes32(bettingId, player, optionId) => PlaceInfo[]
+    mapping(bytes32 => PlaceInfo[]) public playerOptionPlaceInfos;
 
     // 竞猜的公证人填写的答案 bettingId => RefereeAnswerInfo
-    mapping(uint256 => RefereeAnswerInfo[]) public bettingRefereeAnswerMap;
+    mapping(uint256 => RefereeAnswerInfo[]) public refereeAnswerMap;
 
     error OperationDenied(uint256);
 
@@ -82,16 +78,17 @@ contract Betting is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
      * @dev 创建竞猜
      */
     function create(
-        uint256 startTime,
+        uint256 placeTime,
+        uint256 answerTime,
         uint256 settleTime,
         uint256 rewardTime,
         uint256 endTime,
         uint8 optionNum,
         address[] calldata referees,
-        PlaceInfo[] calldata placeInfos
     ) external {
         address sender = msg.sender;
-        require(block.timestamp < settleTime && settleTime < rewardTime && rewardTime < endTime, "invalid time");
+        require(block.timestamp < placeTime && answerTime < settleTime
+            && settleTime < rewardTime && rewardTime < endTime, "invalid time");
         require(optionNum >= 2 && optionNum <= 7, "invalid optionNum");
         uint24 createThreshold = IParam(adminContract).createThreshold();
         bettingInfoMap[bettingId] = BettingInfo({
@@ -102,18 +99,17 @@ contract Betting is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
             endTime: endTime,
             referees: referees,
             optionNum: optionNum,
-            status: BettingStatus.NotStarted,
-            totalBettingAmount: 0,
-            totalRewardAmount: 0,
+            status: BettingStatus.Running,
             answerOptionIndex: 0
         });
-        _place(bettingId, sender, placeInfos);
     }
 
     /**
      * @dev 下注
      */
     function place(uint256 bettingId, PlaceInfo[] calldata placeInfos) external {
+        uint256 nowTime = block.timestamp;
+        require(bettingInfoMap[bettingId].placeTime > nowTime && bettingInfoMap[bettingId].settleTime < nowTime, "betting not Placing");
         _place(bettingId, msg.sender, placeInfos);
     }
 
@@ -121,12 +117,11 @@ contract Betting is Initializable, UUPSUpgradeable, AccessControlUpgradeable {
      * @dev 下注的逻辑实现方法
      */
     function _place(uint256 bettingId, address player, PlaceInfo[] calldata placeInfos) internal {
-        require(bettingInfoMap[bettingId].status == BettingStatus.Placing, "betting not Placing");
         address sender = msg.sender;
         
         for (uint8 i = 0; i < placeInfos.length; i++) {
             PlaceInfo memory pi = placeInfos[i];
-            // 跨链转账
+            // 转token
             IERC20Metadata(pi.token).transferFrom(sender, address(this), pi.sourceAmount);
             // 记录用户下注信息
             bytes32 playerOptionKey = keccak256(abi.encodePacked(bettingId, pi.optionId, player));
