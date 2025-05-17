@@ -306,18 +306,6 @@ contract BaaPrediction is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function emergencyWithdraw(uint256 predictionId) external whenPaused {
-        Prediction storage p = predictions[predictionId];
-        bytes32 playerId = keccak256(abi.encodePacked(msg.sender, 0));
-        Wager storage wager = predictionBill[predictionId][playerId][
-            address(0)
-        ];
-
-        require(wager.sourceAmount > 0, "No funds to withdraw");
-        uint256 amount = wager.sourceAmount;
-        wager.sourceAmount = 0;
-
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "ETH transfer failed");
     }
 
     function getPredictionDetails(

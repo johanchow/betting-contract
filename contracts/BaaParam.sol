@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 contract BaaParam is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     // 费率参数（以基点为单位，1个基点 = 0.01%）
-    uint8   public platformFeeRate;   // 平台基础费率
+    uint16  public platformFeeRate;   // 平台基础费率, (数字/100)/100
     uint256 public minPlaceTime;      // 最小预测时间（秒）
     uint256 public maxPlaceTime;      // 最大预测时间（秒）
     uint256 public minAnswerTime;     // 最小确认答案时间
@@ -19,7 +19,7 @@ contract BaaParam is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     mapping (address => uint8) public supportedTokens;   // 支持使用的token列表;
 
     // 事件
-    event PlatformFeeRateUpdated(uint256 oldRate, uint256 newRate);
+    event PlatformFeeRateUpdated(uint16 oldRate, uint16 newRate);
     event BetAmountLimitsUpdated(uint256 oldMin, uint256 newMin, uint256 oldMax, uint256 newMax);
     event PlaceTimeLimitUpdated(uint256 oldMin, uint256 newMin, uint256 oldMax, uint256 newMax);
     event AnswerTimeLimitUpdated(uint256 oldMin, uint256 newMin, uint256 oldMax, uint256 newMax);
@@ -28,14 +28,16 @@ contract BaaParam is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     event TokensBatchAdded(address[] tokens);
     event TokensBatchRemoved(address[] indexed tokens);
 
-    error InvalidAmount(string message);
-    error InvalidTime(string message);
-    error InvalidToken(string message);
+    // 定义自定义错误
+    error FeeRateTooHigh(uint16 rate);
+    error MinValueGreaterThanMax(uint256 min, uint256 max);
+    error TimeTooShort(uint256 time);
+    error TimeTooLong(uint256 time);
 
     modifier timeValid(uint256 minValue, uint256 maxValue) {
-        require(minValue < maxValue, "Min value should be less than max value");
-        require(minValue >= 1 hours, "Min time too short");
-        require(maxValue <= 30 days, "Max time too long");
+        if (minValue >= maxValue) revert MinValueGreaterThanMax(minValue, maxValue);
+        if (minValue < 1 hours) revert TimeTooShort(minValue);
+        if (maxValue > 30 days) revert TimeTooLong(maxValue);
         _;
     }
 
@@ -69,9 +71,9 @@ contract BaaParam is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     // 更新费率
-    function updatePlatformFeeRate(uint8 newRate) external onlyOwner {
-        require(newRate <= 1000, InvalidAmount("Fee rate too high")); // 最高10%
-        uint8 oldRate = platformFeeRate;
+    function updatePlatformFeeRate(uint16 newRate) external onlyOwner {
+        if (newRate > 1000) revert FeeRateTooHigh(newRate); // 最高10.00%
+        uint16 oldRate = platformFeeRate;
         platformFeeRate = newRate;
         emit PlatformFeeRateUpdated(oldRate, newRate);
     }
@@ -136,7 +138,7 @@ contract BaaParam is Initializable, UUPSUpgradeable, OwnableUpgradeable {
 
     // 获取所有参数
     function getAllParams() external view returns (
-        uint8   _feeRate,
+        uint16  _feeRate,
         uint256 _minPlaceTime,
         uint256 _maxPlaceTime,
         uint256 _minAnswerTime,
